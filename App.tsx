@@ -1,8 +1,9 @@
 import React, { useState, useCallback } from 'react';
 import { useRoboShen } from './hooks/useGeminiLive';
 import { RobotFace } from './components/RobotFace';
-import { ChatContainer } from './components/ChatContainer';
 import { AppState } from './types';
+// FIX: Import ChatContainer component to resolve reference error.
+import { ChatContainer } from './components/ChatContainer';
 
 const App: React.FC = () => {
     const [appState, setAppState] = useState<AppState>(AppState.SLEEPING);
@@ -11,6 +12,7 @@ const App: React.FC = () => {
         history,
         error,
         isThinking,
+        isSpeaking,
         startSession,
     } = useRoboShen({
         onToolCall: () => setAppState(AppState.CONTENT),
@@ -19,20 +21,22 @@ const App: React.FC = () => {
     const handleWakeUp = useCallback(() => {
         if (appState === AppState.SLEEPING) {
             setAppState(AppState.VOICE);
-            startSession();
+            startSession(true);
         }
     }, [appState, startSession]);
 
-    // TODO: Display error state to the user in a more prominent way
-    if (error) {
-        console.error("Session Error:", error);
-    }
-
     return (
         <div id="app-container" className={`app-state-${appState}`}>
-            {appState === AppState.SLEEPING && (
+            {appState === AppState.SLEEPING && !error && (
                 <div id="intro-overlay" onClick={handleWakeUp}>
                     <span>ناموساً دو دقیقه اومدیم بخوابیم بیدارمون نکن</span>
+                </div>
+            )}
+
+            {error && (
+                <div id="error-display">
+                    <span>{error}</span>
+                    <button onClick={() => startSession()}>تلاش مجدد</button>
                 </div>
             )}
 
@@ -48,6 +52,8 @@ const App: React.FC = () => {
                     onWakeUp={handleWakeUp}
                     isSleeping={appState === AppState.SLEEPING}
                     isThinking={isThinking}
+                    sessionState={sessionState}
+                    isSpeaking={isSpeaking}
                 />
             </div>
             

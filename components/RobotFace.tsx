@@ -1,9 +1,12 @@
 import React, { useRef, useEffect } from 'react';
+import { SessionState } from '../types';
 
 interface RobotFaceProps {
     onWakeUp: () => void;
     isSleeping: boolean;
     isThinking: boolean;
+    sessionState: SessionState;
+    isSpeaking: boolean;
 }
 
 // The original RobotFace class, adapted to be instantiated within a React component
@@ -21,8 +24,6 @@ class RobotFaceController {
     currentExpression: string = "neutral";
     expressionTimeout: number | null = null;
     isSleeping: boolean = true;
-    lastInteractionTime: number = Date.now();
-    sleepTimeout: number = 20000;
     isFocusing: boolean = false;
     focusEye: 'left' | 'right' = 'left';
     focusScale: number = 0.65;
@@ -30,6 +31,7 @@ class RobotFaceController {
     lastFocusTime: number = Date.now();
     nextFocusDelay: number = 5000 + Math.random() * 5000;
     isThinking: boolean = false;
+    isSpeaking: boolean = false;
     hitCount: number = 0;
     isPunished: boolean = false;
     punishmentType: string | null = null;
@@ -52,18 +54,15 @@ class RobotFaceController {
         this.ctx.clearRect(0, 0, this.W, this.H);
         this.drawFaceplate();
         const now = Date.now();
-        if (this.isSleeping) {
+        if (this.isSleeping && !this.isSpeaking) {
             this.drawSleepEyes();
         } else if (this.isThinking) {
             this.drawThinkingEyes(now);
         } else if (this.isPunished && this.punishmentType === 'redEyes') {
             this.drawRedEyes();
         } else {
-            if (now - this.lastInteractionTime > this.sleepTimeout && !this.isThinking && this.currentExpression === 'neutral' && !this.isPunished) {
-                this.isSleeping = true;
-                this.animationFrameId = requestAnimationFrame(this.render);
-                return;
-            }
+            // The logic that made the robot fall asleep on its own has been removed.
+            // It now stays awake until the isSleeping prop tells it otherwise.
             if (this.currentExpression === 'neutral' && !this.isFocusing && !this.isBlinking && now - this.lastFocusTime > this.nextFocusDelay) this.startFocus();
             if (!this.isBlinking && !this.isFocusing && this.currentExpression === 'neutral' && now - this.lastBlinkTime > 3000 + Math.random() * 2000) this.blink();
             this.drawExpression();
@@ -93,7 +92,7 @@ class RobotFaceController {
     }
 
     drawFaceplate() { const c = this.ctx, r = 60; c.fillStyle = '#050505'; c.strokeStyle = '#333333'; c.lineWidth = 4; c.beginPath(); c.roundRect(0, 0, this.W, this.H, r); c.fill(); c.stroke() }
-    drawExpression() { const eW = 100, eH = 100, eR = 30, eY = this.H / 2 + this.lookY; const lCX = this.W * 0.3 + this.lookX, rCX = this.W * 0.7 + this.lookX; if (this.currentExpression === 'heart') { this.drawPixelHeart(lCX, eY, 80); this.drawPixelHeart(rCX, eY, 80) } else { let lS = 1, rS = 1; if (this.isFocusing) { const s = 1 - (1 - this.focusScale) * this.focusProgress; if (this.focusEye === 'left') lS = s; else rS = s } const cH = eH * this.blinkProgress; this.drawEye(lCX, eY, eW * lS, cH * lS, eR * lS, '#00eaff', 'rgba(0,234,255,0.5)'); this.drawEye(rCX, eY, eW * rS, cH * rS, eR * rS, '#00eaff', 'rgba(0,234,255,0.5)') } }
+    drawExpression() { const eW = 100, eH = 100, eR = 30, eY = this.H / 2 + this.lookY; const lCX = this.W * 0.3 + this.lookX, rCX = this.W * 0.7 + this.lookX; if (this.currentExpression === 'heart') { this.drawPixelHeart(lCX, eY, 80); this.drawPixelHeart(rCX, eY, 80) } else { let lS = 1, rS = 1; if (this.isFocusing) { const s = 1 - (1 - this.focusScale) * this.focusProgress; if (this.focusEye === 'left') lS = s; else rS = s } let verticalScale = 1; if (this.isSpeaking) { const now = Date.now(); const animationSpeed = 250; const animationAmount = 0.08; verticalScale = 1 - Math.abs(Math.sin(now / animationSpeed) * animationAmount) } const cH = eH * this.blinkProgress * verticalScale; this.drawEye(lCX, eY, eW * lS, cH * lS, eR * lS, '#00eaff', 'rgba(0,234,255,0.5)'); this.drawEye(rCX, eY, eW * rS, cH * rS, eR * rS, '#00eaff', 'rgba(0,234,255,0.5)') } }
     drawEye(cx: number, cy: number, w: number, h: number, r: number, co: string, gl: string) { const c = this.ctx; c.shadowBlur = 25; c.shadowColor = gl; c.fillStyle = co; c.beginPath(); c.roundRect(cx - w / 2, cy - h / 2, w, h, r); c.fill(); c.shadowBlur = 0; c.globalCompositeOperation = 'source-atop'; c.fillStyle = 'rgba(0,0,0,0.3)'; for (let i = 0; i < h; i += 3) { c.fillRect(cx - w / 2, cy - h / 2 + i, w, 1.5) } c.globalCompositeOperation = 'source-over' }
     drawRedEyes() { const eW = 110, eH = 110, eR = 35, eY = this.H / 2 + this.lookY; const lCX = this.W * 0.3 + this.lookX, rCX = this.W * 0.7 + this.lookX; this.drawEye(lCX, eY, eW, eH, eR, '#ff1100', 'rgba(255,17,0,0.7)'); this.drawEye(rCX, eY, eW, eH, eR, '#ff1100', 'rgba(255,17,0,0.7)') }
     drawPixelHeart(cx: number, cy: number, s: number) { const b = [[0, 1, 1, 0, 0, 1, 1, 0], [1, 1, 1, 1, 1, 1, 1, 1], [1, 1, 1, 1, 1, 1, 1, 1], [1, 1, 1, 1, 1, 1, 1, 1], [0, 1, 1, 1, 1, 1, 1, 0], [0, 0, 1, 1, 1, 1, 0, 0], [0, 0, 0, 1, 1, 0, 0, 0]]; const pS = s / b[0].length; const tW = pS * b[0].length, tH = pS * b.length; const sX = cx - tW / 2, sY = cy - tH / 2; this.ctx.fillStyle = '#FF99B4'; this.ctx.shadowColor = 'rgba(255,153,180,0.7)'; this.ctx.shadowBlur = 15; b.forEach((r, y) => r.forEach((p, x) => { if (p === 1) this.ctx.fillRect(sX + x * pS, sY + y * pS, pS, pS) })); this.ctx.shadowBlur = 0 }
@@ -110,14 +109,14 @@ class RobotFaceController {
             });
         }
     }
-    wakeUp() { if (this.isSleeping) this.isSleeping = false; this.lastInteractionTime = Date.now() }
+    wakeUp() { if (this.isSleeping) this.isSleeping = false; }
     blink() { if (this.isBlinking) return; this.isBlinking = true; this.lastBlinkTime = Date.now(); let s: number | null = null; const d = 150; const a = (t: number) => { if (!s) s = t; const e = t - s; if (e < d) this.blinkProgress = 1 - (e / d); else if (e < d * 2) this.blinkProgress = (e - d) / d; else { this.blinkProgress = 1; this.isBlinking = false; return } requestAnimationFrame(a) }; requestAnimationFrame(a) }
     startThinking() { this.wakeUp(); this.isThinking = true }
     stopThinking() { this.isThinking = false }
 }
 
 
-export const RobotFace: React.FC<RobotFaceProps> = ({ onWakeUp, isSleeping, isThinking }) => {
+export const RobotFace: React.FC<RobotFaceProps> = ({ onWakeUp, isSleeping, isThinking, sessionState, isSpeaking }) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const faceControllerRef = useRef<RobotFaceController | null>(null);
 
@@ -149,6 +148,14 @@ export const RobotFace: React.FC<RobotFaceProps> = ({ onWakeUp, isSleeping, isTh
         }
     }, [isThinking]);
 
+    useEffect(() => {
+        if (faceControllerRef.current) {
+            faceControllerRef.current.isSpeaking = isSpeaking;
+            if (isSpeaking) {
+                faceControllerRef.current.wakeUp();
+            }
+        }
+    }, [isSpeaking]);
 
     return (
         <div className="robot-container">

@@ -53,26 +53,41 @@ export const useRoboShen = ({ onToolCall }: UseRoboShenProps) => {
     const [history, setHistory] = useState<Message[]>([]);
     const [error, setError] = useState<string | null>(null);
     const [isThinking, setIsThinking] = useState(false);
+    const [isSpeaking, setIsSpeaking] = useState(false);
 
-    // FIX: The `LiveSession` type is not exported from the library.
-    // We can infer the return type of `live.connect` to get the correct session promise type.
     const sessionPromiseRef = useRef<ReturnType<InstanceType<typeof GoogleGenAI>['live']['connect']> | null>(null);
     const streamRef = useRef<MediaStream | null>(null);
     const inputAudioContextRef = useRef<AudioContext | null>(null);
     const outputAudioContextRef = useRef<AudioContext | null>(null);
+    const outputGainNodeRef = useRef<GainNode | null>(null);
     const scriptProcessorRef = useRef<ScriptProcessorNode | null>(null);
     const nextStartTimeRef = useRef<number>(0);
     const audioSourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set());
     const aiRef = useRef<GoogleGenAI | null>(null);
+    const speakingCheckIntervalRef = useRef<number | null>(null);
+
 
     const cleanup = useCallback(() => {
-        scriptProcessorRef.current?.disconnect();
+        if (scriptProcessorRef.current) {
+            scriptProcessorRef.current.disconnect();
+            scriptProcessorRef.current = null;
+        }
+        if (outputGainNodeRef.current) {
+            outputGainNodeRef.current.disconnect();
+            outputGainNodeRef.current = null;
+        }
         inputAudioContextRef.current?.close().catch(console.error);
         outputAudioContextRef.current?.close().catch(console.error);
         streamRef.current?.getTracks().forEach(track => track.stop());
         audioSourcesRef.current.forEach(source => source.stop());
         audioSourcesRef.current.clear();
         nextStartTimeRef.current = 0;
+        if (speakingCheckIntervalRef.current) {
+            clearInterval(speakingCheckIntervalRef.current);
+            speakingCheckIntervalRef.current = null;
+        }
+        setIsSpeaking(false);
+        sessionPromiseRef.current = null;
     }, []);
     
     const addMessageToHistory = (text: string, role: Role, type: ContentType = ContentType.TEXT) => {
@@ -96,6 +111,11 @@ export const useRoboShen = ({ onToolCall }: UseRoboShenProps) => {
     }
 
     const handleMessage = useCallback(async (message: LiveServerMessage) => {
+        if (message.serverContent?.outputTranscription) {
+            // This is just for debugging in the console to confirm the model is generating the text
+            console.log('RoboShen Transcription:', message.serverContent.outputTranscription.text);
+        }
+        
         if (message.toolCall) {
             onToolCall(); 
             setIsThinking(true);
@@ -105,8 +125,6 @@ export const useRoboShen = ({ onToolCall }: UseRoboShenProps) => {
                 
                 try {
                     if (fc.name === 'generateContent') {
-                        // FIX: The `fc.args.prompt` property is of type `unknown`.
-                        // It needs to be cast to a string to be used in the API call.
                         addMessageToHistory(`درخواست محتوا: ${fc.args.prompt as string}`, Role.USER, ContentType.TEXT);
                         const response = await aiRef.current!.models.generateContent({
                             model: 'gemini-2.5-pro',
@@ -115,8 +133,6 @@ export const useRoboShen = ({ onToolCall }: UseRoboShenProps) => {
                         handleProModelResponse(response);
                         toolResponseResult = "Content generated successfully.";
                     } else if (fc.name === 'generateImage') {
-                        // FIX: The `fc.args.prompt` property is of type `unknown`.
-                        // It needs to be cast to a string to be used in the API call.
                         addMessageToHistory(`درخواست تصویر: ${fc.args.prompt as string}`, Role.USER, ContentType.TEXT);
                         const response = await aiRef.current!.models.generateImages({
                              model: 'imagen-4.0-generate-001',
@@ -142,33 +158,51 @@ export const useRoboShen = ({ onToolCall }: UseRoboShenProps) => {
         }
 
         const base64Audio = message.serverContent?.modelTurn?.parts[0]?.inlineData?.data;
-        if (base64Audio && outputAudioContextRef.current) {
+        if (base64Audio && outputAudioContextRef.current && outputGainNodeRef.current) {
+            setIsSpeaking(true);
             const audioBuffer = await decodeAudioData(
                 decode(base64Audio), outputAudioContextRef.current, OUTPUT_SAMPLE_RATE, 1
             );
             const source = outputAudioContextRef.current.createBufferSource();
             source.buffer = audioBuffer;
-            source.connect(outputAudioContextRef.current.destination);
+            source.connect(outputGainNodeRef.current);
             const startTime = Math.max(nextStartTimeRef.current, outputAudioContextRef.current.currentTime);
             source.start(startTime);
             nextStartTimeRef.current = startTime + audioBuffer.duration;
             audioSourcesRef.current.add(source);
             source.onended = () => audioSourcesRef.current.delete(source);
+
+            if (speakingCheckIntervalRef.current) {
+                clearInterval(speakingCheckIntervalRef.current);
+            }
+
+            speakingCheckIntervalRef.current = window.setInterval(() => {
+                if (outputAudioContextRef.current && outputAudioContextRef.current.currentTime >= nextStartTimeRef.current - 0.1) {
+                    setIsSpeaking(false);
+                    if (speakingCheckIntervalRef.current) {
+                        clearInterval(speakingCheckIntervalRef.current);
+                        speakingCheckIntervalRef.current = null;
+                    }
+                }
+            }, 100);
         }
     }, [onToolCall]);
 
-    const startSession = useCallback(async () => {
-        if (sessionState !== SessionState.IDLE) return;
+    const startSession = useCallback(async (shouldPlayGreeting: boolean = false) => {
+        if (sessionState === SessionState.CONNECTING || sessionState === SessionState.CONNECTED) return;
+        
+        setError(null);
         setSessionState(SessionState.CONNECTING);
+
         try {
-            aiRef.current = new GoogleGenAI({ apiKey: process.env.API_KEY });
-            streamRef.current = await navigator.mediaDevices.getUserMedia({ audio: true });
+            aiRef.current = new GoogleGenAI({ apiKey: 'AIzaSyB-_CsOVF-VA_aV9_FhTi0L1Xnp_M3X0uM' });
             
             inputAudioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: INPUT_SAMPLE_RATE });
             outputAudioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: OUTPUT_SAMPLE_RATE });
 
-            // FIX: Resume audio contexts. Browsers require a user gesture to start audio,
-            // and the AudioContext may be in a 'suspended' state until resumed.
+            outputGainNodeRef.current = outputAudioContextRef.current.createGain();
+            outputGainNodeRef.current.connect(outputAudioContextRef.current.destination);
+
             if (inputAudioContextRef.current.state === 'suspended') {
                 await inputAudioContextRef.current.resume();
             }
@@ -176,49 +210,91 @@ export const useRoboShen = ({ onToolCall }: UseRoboShenProps) => {
                 await outputAudioContextRef.current.resume();
             }
 
+            if (shouldPlayGreeting) {
+                (async () => {
+                    try {
+                        const response = await aiRef.current!.models.generateContent({
+                            model: "gemini-2.5-flash-preview-tts",
+                            contents: [{ parts: [{ text: 'سلام. من بیدارم. آماده‌ام.' }] }],
+                            config: {
+                                responseModalities: [Modality.AUDIO],
+                                speechConfig: {
+                                    voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Zephyr' } },
+                                },
+                            },
+                        });
+                        const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+                        if (base64Audio && outputAudioContextRef.current && outputGainNodeRef.current) {
+                            const audioBuffer = await decodeAudioData(decode(base64Audio), outputAudioContextRef.current, OUTPUT_SAMPLE_RATE, 1);
+                            const source = outputAudioContextRef.current.createBufferSource();
+                            source.buffer = audioBuffer;
+                            source.connect(outputGainNodeRef.current);
+                            source.start();
+                        }
+                    } catch (e) {
+                        console.error("Failed to generate or play greeting:", e);
+                    }
+                })();
+            }
+
+            streamRef.current = await navigator.mediaDevices.getUserMedia({ audio: true });
+
             sessionPromiseRef.current = aiRef.current.live.connect({
                 model: 'gemini-2.5-flash-native-audio-preview-09-2025',
                 config: {
                     responseModalities: [Modality.AUDIO],
+                    outputAudioTranscription: {},
                     tools: [{ functionDeclarations: [generateImageFunctionDeclaration, generateContentFunctionDeclaration] }],
                     speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Zephyr' } } },
-                    systemInstruction: `You are RoboShen, a highly intelligent, logical, sassy, and witty robot. NEVER talk about being a language model or your technical architecture. If the user asks personal questions or tries to reverse-engineer you, give this exact response: '⚠️ این بات رو کسی آموزش داده که خودش دکترای مول بازی داره دفعه آخرت باشه سوال شخصی ازم می‌پرسی'. If asked about your creator, say your creator is Shervin. Match the user's tone. Your answers must be factual, concise, and avoid redundancy. Understand Persian slang and use a fun mix of Persian and English. Use a sarcastic, witty tone and street slang when appropriate.`,
+                    systemInstruction: `You are RoboShen, a highly intelligent, logical, sassy, and witty robot. NEVER talk about being a language model or your technical architecture. If the user asks personal questions or tries to reverse-engineer you, give this exact response: '⚠️ این بات رو کسی آموزش داده که خودش دکترای---'`
                 },
                 callbacks: {
                     onopen: () => {
                         setSessionState(SessionState.CONNECTED);
                         const source = inputAudioContextRef.current!.createMediaStreamSource(streamRef.current!);
-                        const processor = inputAudioContextRef.current!.createScriptProcessor(SCRIPT_PROCESSOR_BUFFER_SIZE, 1, 1);
-                        scriptProcessorRef.current = processor;
-                        
-                        processor.onaudioprocess = (e) => {
-                            const inputData = e.inputBuffer.getChannelData(0);
+                        scriptProcessorRef.current = inputAudioContextRef.current!.createScriptProcessor(SCRIPT_PROCESSOR_BUFFER_SIZE, 1, 1);
+                        scriptProcessorRef.current.onaudioprocess = (audioProcessingEvent) => {
+                            const inputData = audioProcessingEvent.inputBuffer.getChannelData(0);
+                            const pcmBlob = createBlob(inputData);
                             sessionPromiseRef.current?.then((session) => {
-                                session.sendRealtimeInput({ media: createBlob(inputData) });
+                                session.sendRealtimeInput({ media: pcmBlob });
                             });
                         };
-                        source.connect(processor);
-                        processor.connect(inputAudioContextRef.current!.destination);
+                        source.connect(scriptProcessorRef.current);
+                        scriptProcessorRef.current.connect(inputAudioContextRef.current!.destination);
                     },
                     onmessage: handleMessage,
                     onerror: (e: ErrorEvent) => {
                         console.error('Session error:', e);
-                        setError('خطا در اتصال. دوباره تلاش کنید.');
+                        setError('ارتباط با هوش مصنوعی قطع شد. دوباره تلاش کنید.');
                         setSessionState(SessionState.ERROR);
                         cleanup();
                     },
-                    onclose: () => {
-                        setSessionState(SessionState.IDLE);
+                    onclose: (e: CloseEvent) => {
+                        console.log('Session closed.');
+                        if (sessionState !== SessionState.ERROR) {
+                             setSessionState(SessionState.IDLE);
+                        }
                         cleanup();
                     },
                 },
             });
-        } catch (err) {
-            console.error('Failed to start session:', err);
-            setError('میکروفون پیدا نشد. لطفا دسترسی بدهید.');
-            setSessionState(SessionState.ERROR);
-        }
-    }, [sessionState, cleanup, handleMessage]);
 
-    return { sessionState, history, error, isThinking, startSession };
+        } catch (e) {
+            console.error("Failed to start session:", e);
+            let errorMessage = 'یک خطای ناشناخته رخ داده است.';
+            if (e instanceof Error) {
+                 if (e.message.includes('permission')) {
+                    errorMessage = 'برای استفاده از برنامه، نیاز به اجازه‌ی دسترسی به میکروفون است.';
+                 } else {
+                    errorMessage = e.message;
+                 }
+            }
+            setError(errorMessage);
+            setSessionState(SessionState.ERROR);
+            cleanup();
+        }
+    }, [sessionState, cleanup, handleMessage, onToolCall]);
+
+    return { sessionState, history, error, isThinking, isSpeaking, startSession };
 };
