@@ -1,8 +1,20 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback } from 'react';
 import { useRoboShen } from './hooks/useGeminiLive';
 import { RobotFace } from './components/RobotFace';
-import { AppState } from './types';
+import { AppState, SessionState } from './types';
 import { ChatContainer } from './components/ChatContainer';
+
+const IntroOverlay: React.FC<{ onStart: () => void }> = ({ onStart }) => (
+    <div id="intro-overlay" onClick={onStart}>
+        <div className="intro-content">
+            <h2>به RoboShen خوش آمدید</h2>
+            <p>برای شروع گفتگو، روی صفحه کلیک کنید.</p>
+            <p className="permission-notice">
+                با کلیک کردن، به RoboShen اجازه دسترسی به میکروفون خود را می‌دهید.
+            </p>
+        </div>
+    </div>
+);
 
 const App: React.FC = () => {
     const [appState, setAppState] = useState<AppState>(AppState.VOICE);
@@ -18,12 +30,6 @@ const App: React.FC = () => {
         onToolCall: () => setAppState(AppState.CONTENT),
     });
 
-    useEffect(() => {
-        // Automatically start the session when the app loads.
-        // The greeting is disabled for a faster start.
-        startSession(false);
-    }, [startSession]);
-
     const handleRetry = () => {
         clearError();
         // Give UI time to remove error before restarting
@@ -32,6 +38,8 @@ const App: React.FC = () => {
 
     return (
         <div id="app-container" className={`app-state-${appState}`}>
+             {sessionState === SessionState.IDLE && <IntroOverlay onStart={() => startSession(false)} />}
+
             {error && (
                  <div id="error-overlay">
                     <div id="error-card">
