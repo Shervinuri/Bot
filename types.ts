@@ -28,3 +28,9 @@ export enum AppState {
     VOICE = 'voice',
     CONTENT = 'content',
 }
+
+export interface AppError {
+    title: string;
+    message: string;
+    steps?: string[];
+}

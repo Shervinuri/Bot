@@ -9,6 +9,7 @@
             --eye-color: #00eaff; --eye-glow-color: rgba(0, 234, 255, 0.5); --frame-border-color: #333333;
             --background-dark: #000000; --background-medium: #1a1a1a; --background-screen: #050505;
             --text-light: #e0e0e0; --text-dark: #000000; --text-placeholder: #888;
+            --error-color: #D32F2F; --error-glow-color: rgba(211, 47, 47, 0.5);
         }
         * { -webkit-tap-highlight-color: transparent; box-sizing: border-box; }
         
@@ -36,7 +37,7 @@
             top: 50%;
             transform: translate(-50%, -50%);
             z-index: 10;
-            transition: top 1.2s cubic-bezier(0.4, 0, 0.2, 1);
+            transition: top 0.6s cubic-bezier(0.4, 0, 0.2, 1);
         }
         
         #chat-container-wrapper {
@@ -50,7 +51,7 @@
             z-index: 5;
             display: flex;
             justify-content: center;
-            transition: all 1.2s cubic-bezier(0.4, 0, 0.2, 1);
+            transition: all 0.6s cubic-bezier(0.4, 0, 0.2, 1);
             opacity: 0;
         }
 
@@ -139,45 +140,116 @@
         @keyframes shake { 0%,100%{transform:translate(0,0)}10%{transform:translate(-2px,-3px)}20%{transform:translate(3px,2px)}30%{transform:translate(-3px,3px)}40%{transform:translate(2px,-2px)}50%{transform:translate(-3px,2px)}60%{transform:translate(3px,3px)}70%{transform:translate(-2px,-3px)}80%{transform:translate(3px,-2px)}90%{transform:translate(-2px,3px)} }
         body.punishment-shake #app-container > *:not(#intro-overlay) { animation: shake 0.5s cubic-bezier(.36,.07,.19,.97) both infinite; }
 
-        #error-display {
-            position: fixed;
-            bottom: 20px;
-            left: 50%;
-            transform: translateX(-50%);
-            background-color: #D32F2F;
-            color: white;
-            padding: 12px 20px;
-            border-radius: 8px;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
-            z-index: 2000;
-            font-weight: 500;
+        /* --- Enhanced Error Display --- */
+        #error-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background-color: rgba(0, 0, 0, 0.7);
             display: flex;
+            justify-content: center;
             align-items: center;
-            gap: 15px;
-            animation: fadeInUp 0.5s ease-out;
+            z-index: 2000;
+            -webkit-backdrop-filter: blur(5px);
+            backdrop-filter: blur(5px);
+            animation: fadeIn 0.3s ease-out;
         }
-        #error-display button {
-            background-color: #B71C1C;
-            color: white;
+
+        #error-card {
+            background: var(--background-medium);
+            border: 2px solid var(--error-color);
+            box-shadow: 0 0 30px var(--error-glow-color);
+            border-radius: 12px;
+            width: 90%;
+            max-width: 500px;
+            color: var(--text-light);
+            display: flex;
+            flex-direction: column;
+            animation: fadeInUp 0.5s ease-out .1s both;
+        }
+
+        .error-header {
+            padding: 16px;
+            border-bottom: 1px solid var(--frame-border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .error-header h3 {
+            margin: 0;
+            color: var(--error-color);
+            font-size: 1.2em;
+        }
+
+        .dismiss-btn {
+            background: none;
             border: none;
-            padding: 8px 12px;
-            border-radius: 5px;
+            color: #888;
+            font-size: 24px;
+            cursor: pointer;
+            line-height: 1;
+            padding: 0 8px;
+            transition: color 0.2s;
+        }
+        .dismiss-btn:hover { color: #eee; }
+
+        .error-body {
+            padding: 20px;
+            line-height: 1.7;
+            max-height: 50vh;
+            overflow-y: auto;
+        }
+        .error-body p { margin-top: 0; }
+
+        .troubleshooting {
+            margin-top: 20px;
+            padding-top: 15px;
+            border-top: 1px dashed #444;
+        }
+        .troubleshooting h4 {
+            margin: 0 0 10px 0;
+            font-size: 1em;
+            color: var(--eye-color);
+        }
+        .troubleshooting ul {
+            padding-right: 20px;
+            margin: 10px 0 0;
+            font-size: 0.9em;
+            color: #ccc;
+        }
+        .troubleshooting li { margin-bottom: 8px; }
+
+        .error-footer {
+            padding: 16px;
+            text-align: left;
+            background: #222;
+            border-top: 1px solid var(--frame-border-color);
+            border-bottom-left-radius: 10px;
+            border-bottom-right-radius: 10px;
+        }
+
+        .retry-btn {
+            background-color: var(--eye-color);
+            color: var(--text-dark);
+            border: none;
+            padding: 10px 20px;
+            border-radius: 8px;
             cursor: pointer;
             font-weight: bold;
-            transition: background-color 0.2s;
+            font-size: 1em;
+            transition: all 0.2s ease-in-out;
         }
-        #error-display button:hover {
-            background-color: #a31818;
+        .retry-btn:hover {
+            filter: brightness(1.2);
+            box-shadow: 0 0 15px var(--eye-glow-color);
         }
 
         @keyframes fadeInUp {
             from {
                 opacity: 0;
-                transform: translate(-50%, 20px);
+                transform: translateY(20px);
             }
             to {
                 opacity: 1;
-                transform: translate(-50%, 0);
+                transform: translateY(0);
             }
         }
 

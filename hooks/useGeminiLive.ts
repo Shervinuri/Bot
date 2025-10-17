@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import {
     GoogleGenAI,
     LiveServerMessage,
@@ -7,7 +7,7 @@ import {
     Type,
     GenerateContentResponse,
 } from "@google/genai";
-import { Message, Role, SessionState, ContentType } from '../types';
+import { Message, Role, SessionState, ContentType, AppError } from '../types';
 import { decodeAudioData, createBlob, decode } from '../utils/audio';
 
 const INPUT_SAMPLE_RATE = 16000;
@@ -48,10 +48,50 @@ const generateContentFunctionDeclaration: FunctionDeclaration = {
     },
 };
 
+const mapErrorToAppError = (e: unknown): AppError => {
+    let title = 'یک خطای ناشناخته رخ داد';
+    let message = 'متاسفانه مشکلی پیش آمده. لطفاً دوباره تلاش کنید.';
+    let steps: string[] = [];
+
+    if (e instanceof Error) {
+        const lowerCaseMessage = e.message.toLowerCase();
+        if (lowerCaseMessage.includes('permission') || e.name === 'NotAllowedError') {
+            title = 'دسترسی به میکروفون لازم است';
+            message = 'برای شروع گفتگو، RoboShen نیاز به اجازه‌ی شما برای استفاده از میکروفون دارد.';
+            steps = [
+                'در پنجره‌ی باز شده روی "Allow" کلیک کنید.',
+                'اگر پنجره را بسته‌اید، صفحه را رفرش کنید.',
+                'در تنظیمات مرورگر خود، دسترسی به میکروفون را برای این سایت فعال کنید.'
+            ];
+        } else if (lowerCaseMessage.includes('api key') || lowerCaseMessage.includes('400') || lowerCaseMessage.includes('403') || lowerCaseMessage.includes('network') || lowerCaseMessage.includes('cors')) {
+            title = 'خطا در ارتباط با سرور';
+            message = 'ارتباط با سرویس هوش مصنوعی برقرار نشد. این مشکل می‌تواند به دلایل زیر باشد:';
+            steps = [
+                'اتصال اینترنت خود را بررسی کنید.',
+                'ممکن است سرویس به طور موقت در دسترس نباشد.',
+                'کلید API استفاده شده در کد ممکن است نامعتبر یا منقضی شده باشد.'
+            ];
+        } else if (lowerCaseMessage.includes('device') || e.name === 'NotFoundError') {
+            title = 'میکروفون پیدا نشد';
+            message = 'هیچ دستگاه ورودی صوتی (میکروفون) بر روی سیستم شما شناسایی نشد.';
+            steps = [
+                'اطمینان حاصل کنید که میکروفون به درستی به دستگاه شما متصل است.',
+                'اگر از میکروفون خارجی استفاده می‌کنید، آن را جدا کرده و دوباره وصل کنید.',
+                'درایورهای صوتی خود را بررسی و به‌روزرسانی کنید.'
+            ];
+        } else {
+             message = e.message;
+        }
+    }
+
+    return { title, message, steps };
+};
+
+
 export const useRoboShen = ({ onToolCall }: UseRoboShenProps) => {
     const [sessionState, setSessionState] = useState<SessionState>(SessionState.IDLE);
     const [history, setHistory] = useState<Message[]>([]);
-    const [error, setError] = useState<string | null>(null);
+    const [error, setError] = useState<AppError | null>(null);
     const [isThinking, setIsThinking] = useState(false);
     const [isSpeaking, setIsSpeaking] = useState(false);
 
@@ -65,7 +105,14 @@ export const useRoboShen = ({ onToolCall }: UseRoboShenProps) => {
     const audioSourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set());
     const aiRef = useRef<GoogleGenAI | null>(null);
     const speakingCheckIntervalRef = useRef<number | null>(null);
+    const isClosedRef = useRef(false);
+    const sessionStateRef = useRef(sessionState);
 
+    useEffect(() => {
+        sessionStateRef.current = sessionState;
+    }, [sessionState]);
+
+    const clearError = useCallback(() => setError(null), []);
 
     const cleanup = useCallback(() => {
         if (scriptProcessorRef.current) {
@@ -76,9 +123,21 @@ export const useRoboShen = ({ onToolCall }: UseRoboShenProps) => {
             outputGainNodeRef.current.disconnect();
             outputGainNodeRef.current = null;
         }
-        inputAudioContextRef.current?.close().catch(console.error);
-        outputAudioContextRef.current?.close().catch(console.error);
-        streamRef.current?.getTracks().forEach(track => track.stop());
+        if (inputAudioContextRef.current && inputAudioContextRef.current.state !== 'closed') {
+            inputAudioContextRef.current.close().catch(console.error);
+        }
+        inputAudioContextRef.current = null;
+
+        if (outputAudioContextRef.current && outputAudioContextRef.current.state !== 'closed') {
+            outputAudioContextRef.current.close().catch(console.error);
+        }
+        outputAudioContextRef.current = null;
+        
+        if (streamRef.current) {
+            streamRef.current.getTracks().forEach(track => track.stop());
+            streamRef.current = null;
+        }
+
         audioSourcesRef.current.forEach(source => source.stop());
         audioSourcesRef.current.clear();
         nextStartTimeRef.current = 0;
@@ -193,9 +252,10 @@ export const useRoboShen = ({ onToolCall }: UseRoboShenProps) => {
         
         setError(null);
         setSessionState(SessionState.CONNECTING);
+        isClosedRef.current = false;
 
         try {
-            aiRef.current = new GoogleGenAI({ apiKey: 'AIzaSyB-_CsOVF-VA_aV9_FhTi0L1Xnp_M3X0uM' });
+            aiRef.current = new GoogleGenAI({ apiKey: process.env.API_KEY });
             
             inputAudioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: INPUT_SAMPLE_RATE });
             outputAudioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: OUTPUT_SAMPLE_RATE });
@@ -208,33 +268,6 @@ export const useRoboShen = ({ onToolCall }: UseRoboShenProps) => {
             }
             if (outputAudioContextRef.current.state === 'suspended') {
                 await outputAudioContextRef.current.resume();
-            }
-
-            if (shouldPlayGreeting) {
-                (async () => {
-                    try {
-                        const response = await aiRef.current!.models.generateContent({
-                            model: "gemini-2.5-flash-preview-tts",
-                            contents: [{ parts: [{ text: 'سلام. من بیدارم. آماده‌ام.' }] }],
-                            config: {
-                                responseModalities: [Modality.AUDIO],
-                                speechConfig: {
-                                    voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Zephyr' } },
-                                },
-                            },
-                        });
-                        const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-                        if (base64Audio && outputAudioContextRef.current && outputGainNodeRef.current) {
-                            const audioBuffer = await decodeAudioData(decode(base64Audio), outputAudioContextRef.current, OUTPUT_SAMPLE_RATE, 1);
-                            const source = outputAudioContextRef.current.createBufferSource();
-                            source.buffer = audioBuffer;
-                            source.connect(outputGainNodeRef.current);
-                            source.start();
-                        }
-                    } catch (e) {
-                        console.error("Failed to generate or play greeting:", e);
-                    }
-                })();
             }
 
             streamRef.current = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -250,9 +283,17 @@ export const useRoboShen = ({ onToolCall }: UseRoboShenProps) => {
                 },
                 callbacks: {
                     onopen: () => {
+                        if (isClosedRef.current) {
+                            console.warn("Session opening was attempted after it was already closed. Ignoring.");
+                            return;
+                        }
+                        if (!inputAudioContextRef.current || !streamRef.current || inputAudioContextRef.current.state === 'closed') {
+                            console.error("Audio resources were cleaned up before the session could open.");
+                            return;
+                        }
                         setSessionState(SessionState.CONNECTED);
-                        const source = inputAudioContextRef.current!.createMediaStreamSource(streamRef.current!);
-                        scriptProcessorRef.current = inputAudioContextRef.current!.createScriptProcessor(SCRIPT_PROCESSOR_BUFFER_SIZE, 1, 1);
+                        const source = inputAudioContextRef.current.createMediaStreamSource(streamRef.current);
+                        scriptProcessorRef.current = inputAudioContextRef.current.createScriptProcessor(SCRIPT_PROCESSOR_BUFFER_SIZE, 1, 1);
                         scriptProcessorRef.current.onaudioprocess = (audioProcessingEvent) => {
                             const inputData = audioProcessingEvent.inputBuffer.getChannelData(0);
                             const pcmBlob = createBlob(inputData);
@@ -261,18 +302,25 @@ export const useRoboShen = ({ onToolCall }: UseRoboShenProps) => {
                             });
                         };
                         source.connect(scriptProcessorRef.current);
-                        scriptProcessorRef.current.connect(inputAudioContextRef.current!.destination);
+                        scriptProcessorRef.current.connect(inputAudioContextRef.current.destination);
                     },
                     onmessage: handleMessage,
                     onerror: (e: ErrorEvent) => {
                         console.error('Session error:', e);
-                        setError('ارتباط با هوش مصنوعی قطع شد. دوباره تلاش کنید.');
+                         setError({
+                            title: 'ارتباط قطع شد',
+                            message: 'ارتباط با سرور هوش مصنوعی به طور ناگهانی قطع شد.',
+                            steps: [
+                                'اتصال اینترنت خود را بررسی کنید.',
+                                'برای ادامه، روی دکمه "تلاش مجدد" کلیک کنید.'
+                            ]
+                        });
                         setSessionState(SessionState.ERROR);
-                        cleanup();
                     },
                     onclose: (e: CloseEvent) => {
                         console.log('Session closed.');
-                        if (sessionState !== SessionState.ERROR) {
+                        isClosedRef.current = true;
+                        if (sessionStateRef.current !== SessionState.ERROR) {
                              setSessionState(SessionState.IDLE);
                         }
                         cleanup();
@@ -282,19 +330,11 @@ export const useRoboShen = ({ onToolCall }: UseRoboShenProps) => {
 
         } catch (e) {
             console.error("Failed to start session:", e);
-            let errorMessage = 'یک خطای ناشناخته رخ داده است.';
-            if (e instanceof Error) {
-                 if (e.message.includes('permission')) {
-                    errorMessage = 'برای استفاده از برنامه، نیاز به اجازه‌ی دسترسی به میکروفون است.';
-                 } else {
-                    errorMessage = e.message;
-                 }
-            }
-            setError(errorMessage);
+            setError(mapErrorToAppError(e));
             setSessionState(SessionState.ERROR);
             cleanup();
         }
     }, [sessionState, cleanup, handleMessage, onToolCall]);
 
-    return { sessionState, history, error, isThinking, isSpeaking, startSession };
+    return { sessionState, history, error, isThinking, isSpeaking, startSession, clearError };
 };

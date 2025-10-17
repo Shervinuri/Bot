@@ -1,12 +1,11 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { useRoboShen } from './hooks/useGeminiLive';
 import { RobotFace } from './components/RobotFace';
 import { AppState } from './types';
-// FIX: Import ChatContainer component to resolve reference error.
 import { ChatContainer } from './components/ChatContainer';
 
 const App: React.FC = () => {
-    const [appState, setAppState] = useState<AppState>(AppState.SLEEPING);
+    const [appState, setAppState] = useState<AppState>(AppState.VOICE);
     const {
         sessionState,
         history,
@@ -14,29 +13,49 @@ const App: React.FC = () => {
         isThinking,
         isSpeaking,
         startSession,
+        clearError,
     } = useRoboShen({
         onToolCall: () => setAppState(AppState.CONTENT),
     });
 
-    const handleWakeUp = useCallback(() => {
-        if (appState === AppState.SLEEPING) {
-            setAppState(AppState.VOICE);
-            startSession(true);
-        }
-    }, [appState, startSession]);
+    useEffect(() => {
+        // Automatically start the session when the app loads.
+        // The greeting is disabled for a faster start.
+        startSession(false);
+    }, [startSession]);
+
+    const handleRetry = () => {
+        clearError();
+        // Give UI time to remove error before restarting
+        setTimeout(() => startSession(false), 100);
+    }
 
     return (
         <div id="app-container" className={`app-state-${appState}`}>
-            {appState === AppState.SLEEPING && !error && (
-                <div id="intro-overlay" onClick={handleWakeUp}>
-                    <span>ناموساً دو دقیقه اومدیم بخوابیم بیدارمون نکن</span>
-                </div>
-            )}
-
             {error && (
-                <div id="error-display">
-                    <span>{error}</span>
-                    <button onClick={() => startSession()}>تلاش مجدد</button>
+                 <div id="error-overlay">
+                    <div id="error-card">
+                        <div className="error-header">
+                            <h3>{error.title}</h3>
+                            <button className="dismiss-btn" onClick={clearError}>&times;</button>
+                        </div>
+                        <div className="error-body">
+                            <p>{error.message}</p>
+                            {error.steps && error.steps.length > 0 && (
+                                <div className="troubleshooting">
+                                    <h4>راهکارهای پیشنهادی:</h4>
+                                    <ul>
+                                        {error.steps.map((step, index) => (
+                                            <li key={index}>{step}</li>
+                                        ))}
+                                    </ul>
+                                </div>
+                            )}
+                        </div>
+                        <div className="error-footer">
+                            <button className="retry-btn" onClick={handleRetry}>تلاش مجدد</button>
+                        </div>
+                    </div>
                 </div>
             )}
 
@@ -49,7 +68,6 @@ const App: React.FC = () => {
 
             <div id="robot-wrapper">
                 <RobotFace
-                    onWakeUp={handleWakeUp}
                     isSleeping={appState === AppState.SLEEPING}
                     isThinking={isThinking}
                     sessionState={sessionState}
