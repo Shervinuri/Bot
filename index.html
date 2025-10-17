@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>ROBO☬SHΞN™ - Live</title>
+    <style>
+        :root {
+            --eye-color: #00eaff; --eye-glow-color: rgba(0, 234, 255, 0.5); --frame-border-color: #333333;
+            --background-dark: #000000; --background-medium: #1a1a1a; --background-screen: #050505;
+            --text-light: #e0e0e0; --text-dark: #000000; --text-placeholder: #888;
+        }
+        * { -webkit-tap-highlight-color: transparent; box-sizing: border-box; }
+        
+        body, html {
+            margin: 0; padding: 0; height: 100%; width: 100%;
+            background-color: var(--background-dark);
+            overflow: hidden;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            color: var(--text-light);
+            transition: transform 0.5s ease-in-out, filter 0.5s ease-in-out;
+        }
+        
+        #root {
+            width: 100%; height: 100%;
+        }
+
+        #app-container {
+            width: 100%; height: 100%;
+            position: relative;
+        }
+
+        #robot-wrapper {
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 10;
+            transition: top 1.2s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        
+        #chat-container-wrapper {
+            position: absolute;
+            width: 95%;
+            max-width: 700px;
+            height: 0;
+            left: 50%;
+            transform: translateX(-50%);
+            top: calc(50% + 35vmin); 
+            z-index: 5;
+            display: flex;
+            justify-content: center;
+            transition: all 1.2s cubic-bezier(0.4, 0, 0.2, 1);
+            opacity: 0;
+        }
+
+        #chat-container {
+            width: 100%;
+            height: 100%;
+            background-color: rgba(26, 26, 26, 0.9);
+            border: 2px solid var(--frame-border-color);
+            border-radius: 12px;
+            box-shadow: 0 0 25px rgba(0, 234, 255, 0.2);
+            padding: 0;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* --- Animation states controlled by React --- */
+
+        .app-state-voice #robot-wrapper {
+            top: 50%;
+        }
+
+        .app-state-content #robot-wrapper {
+            top: calc(10px + 140px); /* 140px is half of robot height */
+        }
+
+        .app-state-content #chat-container-wrapper {
+            opacity: 1;
+            top: 20px;
+            height: calc(100% - 40px);
+        }
+
+        #chat-history {
+            flex-grow: 1;
+            overflow-y: auto;
+            border: 1px solid var(--frame-border-color);
+            background-color: var(--background-screen);
+            padding: 15px;
+            border-radius: 8px;
+            margin: 130px 24px 24px 24px;
+            display: flex;
+            flex-direction: column-reverse;
+            gap: 12px;
+        }
+
+        #chat-history::-webkit-scrollbar { width: 8px; }
+        #chat-history::-webkit-scrollbar-track { background: transparent; }
+        #chat-history::-webkit-scrollbar-thumb { background-color: var(--eye-color); border-radius: 10px; border: 2px solid var(--background-screen); }
+        
+        .message { padding: 10px 16px; border-radius: 18px; max-width: 85%; word-wrap: break-word; line-height: 1.5; animation: fadeIn 0.3s ease-in-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .user { background-color: var(--eye-color); color: var(--text-dark); align-self: flex-end; border-bottom-right-radius: 4px; font-weight: 500; }
+        .bot { background-color: #383838; color: var(--text-light); align-self: flex-start; border-bottom-left-radius: 4px; }
+        .bot img { max-width: 100%; border-radius: 8px; margin-top: 8px; }
+        .bot pre { background-color: #0d1117; color: #c9d1d9; padding: 16px; border-radius: 6px; overflow-x: auto; font-family: 'Courier New', Courier, monospace; font-size: 14px; position: relative; }
+        .bot .code-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; font-size: 12px; color: #888; }
+        .bot .copy-btn { background: #333; border: 1px solid #555; color: #eee; padding: 4px 8px; border-radius: 4px; cursor: pointer; }
+
+        #intro-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            z-index: 1000; cursor: pointer;
+            display: flex; flex-direction: column;
+            justify-content: flex-end; align-items: center;
+            padding-bottom: 15vh;
+            color: #555; font-size: 14px;
+            animation: fadeInHint 2s 1s ease-in-out forwards;
+            opacity: 0;
+            background-color: rgba(0,0,0,0.5);
+            transition: opacity 0.5s;
+        }
+        @keyframes fadeInHint { to { opacity: 1; } }
+
+        .robot-container { flex-shrink: 0; width:70vmin; height:70vmin; max-width:280px; max-height:280px; }
+        .robot-frame { width: 100%; height: 100%; background: linear-gradient(145deg, #2a2a2a, var(--background-medium)); border-radius: 22%; box-shadow: inset 0 0 15px rgba(0,0,0,0.5), 10px 10px 30px #0a0a0a, -10px -10px 30px #202020; display: flex; align-items: center; justify-content: center; position: relative; }
+        #faceCanvas { width: 80%; height: 75%; cursor: pointer; }
+        .engraved-text { position: absolute; bottom: 4.5%; left: 0; right: 0; text-align: center; font-size: clamp(10px, 4vmin, 18px); font-weight: bold; color: #252525; text-shadow: 1px 1px 1px #111, 0 0 0 #000, 0px 0px 3px #111; letter-spacing: 2px; pointer-events: none; }
+        
+        .footer { position: fixed; bottom: 10px; width: 100%; left: 0; text-align: center; font-size: 12px; font-weight: bold; color: var(--eye-color); text-shadow: 0 0 8px var(--eye-glow-color); pointer-events: none; opacity: 0; transition: opacity 1s ease-in-out 2s; }
+        .app-state-content .footer { opacity: 1; }
+
+        #rotate-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: var(--background-dark); color: var(--text-light); display: none; justify-content: center; align-items: center; text-align: center; z-index: 1000; } 
+        @media screen and (max-height: 500px) and (orientation: landscape) { #rotate-overlay { display: flex; } }
+        
+        body.punishment-rotate { transform: rotate(180deg); } 
+        body.punishment-blur { filter: blur(8px); }
+        @keyframes shake { 0%,100%{transform:translate(0,0)}10%{transform:translate(-2px,-3px)}20%{transform:translate(3px,2px)}30%{transform:translate(-3px,3px)}40%{transform:translate(2px,-2px)}50%{transform:translate(-3px,2px)}60%{transform:translate(3px,3px)}70%{transform:translate(-2px,-3px)}80%{transform:translate(3px,-2px)}90%{transform:translate(-2px,3px)} }
+        body.punishment-shake #app-container > *:not(#intro-overlay) { animation: shake 0.5s cubic-bezier(.36,.07,.19,.97) both infinite; }
+
+    </style>
+    <script type="importmap">
+{
+  "imports": {
+    "react": "https://esm.sh/react@18.2.0",
+    "react/": "https://esm.sh/react@18.2.0/",
+    "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
+    "react-dom/": "https://esm.sh/react-dom@18.2.0/",
+    "@google/genai": "https://esm.sh/@google/genai"
+  }
+}
+</script>
+</head>
+<body>
+    <div id="root"></div>
+    <script type="module" src="/index.tsx"></script>
+</body>
+</html>

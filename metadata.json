@@ -1,0 +1,7 @@
+{
+  "name": "ROBO☬SHΞN™ - Live",
+  "description": "A highly interactive AI personality, RoboShen, powered by a dual-core Gemini setup. It uses a Live model for real-time voice conversations and a Pro model for complex content generation, creating a seamless, unified user experience.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
