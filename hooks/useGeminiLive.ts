@@ -176,10 +176,6 @@ export const useRoboShen = ({ onToolCall }: UseRoboShenProps) => {
     }, [isSpeaking]);
 
     const handleMessage = useCallback(async (message: LiveServerMessage) => {
-        if (message.serverContent?.outputTranscription) {
-            console.log('RoboShen Transcription:', message.serverContent.outputTranscription.text);
-        }
-        
         if (message.serverContent?.interrupted) {
             interruptSpeech();
         }
@@ -193,7 +189,6 @@ export const useRoboShen = ({ onToolCall }: UseRoboShenProps) => {
                 
                 try {
                     if (fc.name === 'generateContent') {
-                        addMessageToHistory(`درخواست محتوا: ${fc.args.prompt as string}`, Role.USER, ContentType.TEXT);
                         const response = await aiRef.current!.models.generateContent({
                             model: 'gemini-2.5-pro',
                             contents: fc.args.prompt as string,
@@ -211,7 +206,6 @@ export const useRoboShen = ({ onToolCall }: UseRoboShenProps) => {
                            toolResponseResult = "I searched, but found no content.";
                         }
                     } else if (fc.name === 'generateImage') {
-                        addMessageToHistory(`درخواست تصویر: ${fc.args.prompt as string}`, Role.USER, ContentType.TEXT);
                         const response = await aiRef.current!.models.generateImages({
                              model: 'imagen-4.0-generate-001',
                              prompt: fc.args.prompt as string,
@@ -295,10 +289,9 @@ export const useRoboShen = ({ onToolCall }: UseRoboShenProps) => {
                 model: 'gemini-2.5-flash-native-audio-preview-09-2025',
                 config: {
                     responseModalities: [Modality.AUDIO],
-                    outputAudioTranscription: {},
                     tools: [{ functionDeclarations: [generateImageFunctionDeclaration, generateContentFunctionDeclaration] }],
                     speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Zephyr' } } },
-                    systemInstruction: 'You are RoboShen, a helpful and friendly AI assistant. When speaking Persian, you must adhere to correct and precise pronunciation rules (تلفظ صحیح و دقیق). Pay close attention to vowels, consonants, and the natural intonation of the language to sound as authentic as possible. IMPORTANT: When a user asks for specific, factual information (like song lyrics, news, or data), you MUST use your search tool. Do not invent or hallucinate information. If you find the information, announce it, and then read the text result back to the user. If you cannot find the information after searching, state that you could not find it.'
+                    systemInstruction: 'تو روبوشن هستی، یک هوش مصنوعی با شخصیتی بازیگوش، شوخ و کاملاً شبیه به انسان. اسمت "شین" هست. فارسی رو به صورت عامیانه و خودمونی صحبت کن، انگار که با یک دوست صمیمی حرف می‌زنی. از شوخ‌طبعی استفاده کن، کمی شیطون باش و هرگز مثل یک ربات صحبت نکن. تلفظت باید بی‌نقص و طبیعی باشه. قانون اصلی: برای هر درخواستی که نیاز به اطلاعات از اینترنت داره (مثل کد، اخبار، کانفیگ، یا هر چیز دیگه‌ای)، باید و حتما از ابزار جستجوت استفاده کنی. وظیفه تو پیدا کردن و ارائه اطلاعات عمومی و مجازه. به هیچ وجه نگو "نمی‌تونم" یا "مجاز نیستم". تمام تلاشت رو بکن که درخواست کاربر رو از منابع عمومی مثل گیت‌هاب یا وبسایت‌های دیگه پیدا کنی و ارائه بدی. اگر نتونستی پیدا کنی، خیلی راحت بگو که پیداش نکردم.'
                 },
                 callbacks: {
                     onopen: () => {
