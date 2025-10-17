@@ -26,6 +26,7 @@ const App: React.FC = () => {
         isSpeaking,
         startSession,
         clearError,
+        interruptSpeech,
     } = useRoboShen({
         onToolCall: () => setAppState(AppState.CONTENT),
     });
@@ -80,6 +81,7 @@ const App: React.FC = () => {
                     isThinking={isThinking}
                     sessionState={sessionState}
                     isSpeaking={isSpeaking}
+                    onInterrupt={interruptSpeech}
                 />
             </div>
             

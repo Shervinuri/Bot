@@ -6,6 +6,7 @@ interface RobotFaceProps {
     isThinking: boolean;
     sessionState: SessionState;
     isSpeaking: boolean;
+    onInterrupt?: () => void;
 }
 
 // The original RobotFace class, adapted to be instantiated within a React component
@@ -82,7 +83,7 @@ class RobotFaceController {
 }
 
 
-export const RobotFace: React.FC<RobotFaceProps> = ({ isSleeping, isThinking, sessionState, isSpeaking }) => {
+export const RobotFace: React.FC<RobotFaceProps> = ({ isSleeping, isThinking, sessionState, isSpeaking, onInterrupt }) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const faceControllerRef = useRef<RobotFaceController | null>(null);
 
@@ -121,7 +122,7 @@ export const RobotFace: React.FC<RobotFaceProps> = ({ isSleeping, isThinking, se
     }, [isSpeaking]);
 
     return (
-        <div className="robot-container">
+        <div className="robot-container" onClick={onInterrupt}>
             <div className="robot-frame">
                 <canvas ref={canvasRef} id="faceCanvas" width="300" height="300"></canvas>
                 <div className="engraved-text">ROBO☬SHΞN™</div>

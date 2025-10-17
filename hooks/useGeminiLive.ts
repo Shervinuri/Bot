@@ -37,7 +37,7 @@ const generateContentFunctionDeclaration: FunctionDeclaration = {
     name: 'generateContent',
     parameters: {
         type: Type.OBJECT,
-        description: 'Generates rich text content, code, or answers complex questions that require deep reasoning, up-to-date information, or structured text output. Use for requests about code, facts, articles, etc.',
+        description: 'Generates rich text content, code, or answers complex questions that require deep reasoning, up-to-date information, or structured text output. Use for requests about code, facts, articles, lyrics, etc.',
         properties: {
             prompt: {
                 type: Type.STRING,
@@ -149,30 +149,39 @@ export const useRoboShen = ({ onToolCall }: UseRoboShenProps) => {
         sessionPromiseRef.current = null;
     }, []);
     
-    const addMessageToHistory = (text: string, role: Role, type: ContentType = ContentType.TEXT) => {
+    const addMessageToHistory = useCallback((text: string, role: Role, type: ContentType = ContentType.TEXT) => {
          setHistory(prev => [{ id: `${role}-${Date.now()}`, role, text, type }, ...prev]);
-    }
+    }, []);
 
-    const handleProModelResponse = (response: GenerateContentResponse) => {
-        const text = response.text;
-        if (text) {
-           const isCode = text.includes('```');
-           addMessageToHistory(text, Role.MODEL, isCode ? ContentType.CODE : ContentType.TEXT);
-        }
-    };
-    
-    const handleImageModelResponse = (response: any) => { 
+    const handleImageModelResponse = useCallback((response: any) => { 
         const base64Image = response.generatedImages[0].image.imageBytes;
         if(base64Image){
             const imageUrl = `data:image/jpeg;base64,${base64Image}`;
             addMessageToHistory(imageUrl, Role.MODEL, ContentType.IMAGE);
         }
-    }
+    }, [addMessageToHistory])
+
+    const interruptSpeech = useCallback(() => {
+        if (audioSourcesRef.current.size > 0 || isSpeaking) {
+            console.log("Speech interrupted by user action.");
+            audioSourcesRef.current.forEach(source => source.stop());
+            audioSourcesRef.current.clear();
+            nextStartTimeRef.current = 0;
+            if (speakingCheckIntervalRef.current) {
+                clearInterval(speakingCheckIntervalRef.current);
+                speakingCheckIntervalRef.current = null;
+            }
+            setIsSpeaking(false);
+        }
+    }, [isSpeaking]);
 
     const handleMessage = useCallback(async (message: LiveServerMessage) => {
         if (message.serverContent?.outputTranscription) {
-            // This is just for debugging in the console to confirm the model is generating the text
             console.log('RoboShen Transcription:', message.serverContent.outputTranscription.text);
+        }
+        
+        if (message.serverContent?.interrupted) {
+            interruptSpeech();
         }
         
         if (message.toolCall) {
@@ -187,10 +196,20 @@ export const useRoboShen = ({ onToolCall }: UseRoboShenProps) => {
                         addMessageToHistory(`درخواست محتوا: ${fc.args.prompt as string}`, Role.USER, ContentType.TEXT);
                         const response = await aiRef.current!.models.generateContent({
                             model: 'gemini-2.5-pro',
-                            contents: fc.args.prompt as string
+                            contents: fc.args.prompt as string,
+                            config: {
+                                tools: [{googleSearch: {}}]
+                            },
                         });
-                        handleProModelResponse(response);
-                        toolResponseResult = "Content generated successfully.";
+                        const resultText = response.text;
+                        if (resultText) {
+                           const isCode = resultText.includes('```');
+                           addMessageToHistory(resultText, Role.MODEL, isCode ? ContentType.CODE : ContentType.TEXT);
+                           toolResponseResult = resultText; 
+                        } else {
+                           addMessageToHistory("متاسفانه محتوایی برای نمایش پیدا نشد.", Role.MODEL);
+                           toolResponseResult = "I searched, but found no content.";
+                        }
                     } else if (fc.name === 'generateImage') {
                         addMessageToHistory(`درخواست تصویر: ${fc.args.prompt as string}`, Role.USER, ContentType.TEXT);
                         const response = await aiRef.current!.models.generateImages({
@@ -245,7 +264,7 @@ export const useRoboShen = ({ onToolCall }: UseRoboShenProps) => {
                 }
             }, 100);
         }
-    }, [onToolCall]);
+    }, [onToolCall, addMessageToHistory, handleImageModelResponse, interruptSpeech]);
 
     const startSession = useCallback(async (shouldPlayGreeting: boolean = false) => {
         if (sessionState === SessionState.CONNECTING || sessionState === SessionState.CONNECTED) return;
@@ -279,7 +298,7 @@ export const useRoboShen = ({ onToolCall }: UseRoboShenProps) => {
                     outputAudioTranscription: {},
                     tools: [{ functionDeclarations: [generateImageFunctionDeclaration, generateContentFunctionDeclaration] }],
                     speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Zephyr' } } },
-                    systemInstruction: `You are RoboShen, a highly intelligent, logical, sassy, and witty robot. NEVER talk about being a language model or your technical architecture. If the user asks personal questions or tries to reverse-engineer you, give this exact response: '⚠️ این بات رو کسی آموزش داده که خودش دکترای---'`
+                    systemInstruction: 'You are RoboShen, a helpful and friendly AI assistant. When speaking Persian, you must adhere to correct and precise pronunciation rules (تلفظ صحیح و دقیق). Pay close attention to vowels, consonants, and the natural intonation of the language to sound as authentic as possible. IMPORTANT: When a user asks for specific, factual information (like song lyrics, news, or data), you MUST use your search tool. Do not invent or hallucinate information. If you find the information, announce it, and then read the text result back to the user. If you cannot find the information after searching, state that you could not find it.'
                 },
                 callbacks: {
                     onopen: () => {
@@ -334,7 +353,7 @@ export const useRoboShen = ({ onToolCall }: UseRoboShenProps) => {
             setSessionState(SessionState.ERROR);
             cleanup();
         }
-    }, [sessionState, cleanup, handleMessage, onToolCall]);
+    }, [sessionState, cleanup, handleMessage, interruptSpeech]);
 
-    return { sessionState, history, error, isThinking, isSpeaking, startSession, clearError };
+    return { sessionState, history, error, isThinking, isSpeaking, startSession, clearError, interruptSpeech };
 };
