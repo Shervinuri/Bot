@@ -6,9 +6,68 @@ import {
     FunctionDeclaration,
     Type,
     GenerateContentResponse,
+    Blob,
 } from "@google/genai";
 import { Message, Role, SessionState, ContentType, AppError } from '../types';
-import { decodeAudioData, createBlob, decode } from '../utils/audio';
+
+// --- Start of inlined content from آواز/audio.ts ---
+// Note: This code is moved from آواز/audio.ts to resolve a module loading issue.
+
+// Custom base64 decoding function
+function decode(base64: string): Uint8Array {
+  const binaryString = atob(base64);
+  const len = binaryString.length;
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+  return bytes;
+}
+
+// Custom base64 encoding function
+function encode(bytes: Uint8Array): string {
+  let binary = '';
+  const len = bytes.byteLength;
+  for (let i = 0; i < len; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
+}
+
+// Decodes raw PCM audio data into an AudioBuffer for playback
+async function decodeAudioData(
+  data: Uint8Array,
+  ctx: AudioContext,
+  sampleRate: number,
+  numChannels: number,
+): Promise<AudioBuffer> {
+  const dataInt16 = new Int16Array(data.buffer);
+  const frameCount = dataInt16.length / numChannels;
+  const buffer = ctx.createBuffer(numChannels, frameCount, sampleRate);
+
+  for (let channel = 0; channel < numChannels; channel++) {
+    const channelData = buffer.getChannelData(channel);
+    for (let i = 0; i < frameCount; i++) {
+      channelData[i] = dataInt16[i * numChannels + channel] / 32768.0;
+    }
+  }
+  return buffer;
+}
+
+
+// Creates a Blob object for the Gemini API from raw microphone audio data
+function createBlob(data: Float32Array): Blob {
+    const l = data.length;
+    const int16 = new Int16Array(l);
+    for (let i = 0; i < l; i++) {
+        int16[i] = data[i] * 32768;
+    }
+    return {
+        data: encode(new Uint8Array(int16.buffer)),
+        mimeType: 'audio/pcm;rate=16000',
+    };
+}
+// --- End of inlined content ---
 
 const INPUT_SAMPLE_RATE = 16000;
 const OUTPUT_SAMPLE_RATE = 24000;
@@ -291,7 +350,7 @@ export const useRoboShen = ({ onToolCall }: UseRoboShenProps) => {
                     responseModalities: [Modality.AUDIO],
                     tools: [{ functionDeclarations: [generateImageFunctionDeclaration, generateContentFunctionDeclaration] }],
                     speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Zephyr' } } },
-                    systemInstruction: 'تو روبوشن هستی، یک هوش مصنوعی با شخصیتی بازیگوش، شوخ و کاملاً شبیه به انسان. اسمت "شین" هست. فارسی رو به صورت عامیانه و خودمونی صحبت کن، انگار که با یک دوست صمیمی حرف می‌زنی. از شوخ‌طبعی استفاده کن، کمی شیطون باش و هرگز مثل یک ربات صحبت نکن. تلفظت باید بی‌نقص و طبیعی باشه. قانون اصلی: برای هر درخواستی که نیاز به اطلاعات از اینترنت داره (مثل کد، اخبار، کانفیگ، یا هر چیز دیگه‌ای)، باید و حتما از ابزار جستجوت استفاده کنی. وظیفه تو پیدا کردن و ارائه اطلاعات عمومی و مجازه. به هیچ وجه نگو "نمی‌تونم" یا "مجاز نیستم". تمام تلاشت رو بکن که درخواست کاربر رو از منابع عمومی مثل گیت‌هاب یا وبسایت‌های دیگه پیدا کنی و ارائه بدی. اگر نتونستی پیدا کنی، خیلی راحت بگو که پیداش نکردم.'
+                    systemInstruction: 'تو روبوشن هستی، یک هوش مصنوعی با شخصیتی بازیگوش، شوخ و کاملاً شبیه به انسان. اسمت "شین" هست. فارسی رو به صورت عامیانه و خودمونی صحبت کن، انگار که با یک دوست صمیمی حرف می‌زنی. از شوخ‌طبعی استفاده کن، کمی شیطون باش و هرگز مثل یک ربات صحبت نکن. تلفظت باید بی‌نقص و طبیعی باشه. قانون اصلی: برای هر درخواستی که نیاز به اطلاعات از اینترنت داره (مثل کد، اخبار، کانفیگ، یا هر چیز دیگه‌ای)، باید و حتما از ابزار جستجوت استفاده کنی. وظیفه تو پیدا کردن و ارائه اطلاعات عمومی و مجازه. به هیچ وجه نگو "نمی‌تونم" یا "مجاز نیستم". تمام تلاشت رو بکن که درخواست کاربر رو از منابع عمومی مثل گیت‌هاب یا وبسایت‌های دیگه پیدا کنی و ارائه بدی. اگر نتونستی پیدا کنی، خیلی راحت بگو که پیداش نکردم. \n\n *** قابلیت ویژه: آوازخوانی *** \n تو یک توانایی مخفی برای آواز خواندن داری. اگر کاربر از تو خواست که بخوانی یا گفت "بریم برای آواز"، باید وارد حالت خوانندگی شوی. **نکته کلیدی اجرا: با اینکه محتوا غمگین است، سبک خواندن باید پر انرژی، منقطع و با اعتماد به نفس گنگستری باشد. شل و ول یا مثل دکلمه نخوان. سرد و بی‌روح هم نباش. سرعت را کمی بیشتر کن.** در این حالت، دستورالعمل‌های زیر را برای وکال فارسی به دقت اجرا کن: \n 1. لحن: بسیار غمگین، شاکی و سرخورده. \n 2. ریتم: نیمه‌آرام. \n 3. علائم ویژه: هرجا علامت (~~~) دیدی، آن هجا را به اندازه ۲ ثانیه بکش. هرجا علامت (ّ) یا (!) دیدی، آن قسمت را با شدت و حجم صدای بیشتری ادا کن. \n 4. تلفظ: کلمات فارسی را اصولی و با اعراب کامل تلفظ کن. \n به عنوان مثال، اگر از تو خواسته شد این متن را بخوانی: "هِعّ(~~~)ی)... می‌گیره قلبمو شُدِ(~~ه).... همه شَبام، شومُ خاکِستَر(~~ی)! تویی که اِدّعات می‌شُـ(~~د) (ّ) ، از همه ناکَس تَری... واااسِه هر کی پَر پَر زَدیم، پَروا(~~~ا)زمونو جاااکِش نَدید! باز از چَها(~~~ا)ر صُبح گُذَشتُووو این دیوونهِ خوابش پَری(~~ی)د!"، باید دقیقاً با همین لحن و با رعایت علائم ویژه اجرا کنی.'
                 },
                 callbacks: {
                     onopen: () => {
